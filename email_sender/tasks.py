@@ -155,3 +155,35 @@ def send_welcome_email_task(self, user_email, username):
         kwargs={"html_message": html_message},
     ).id
 
+
+@shared_task(bind=True)
+def send_scheduled_report_task(self, recipient_email=None):
+    """
+    Periodic task to compile and send a task execution summary report.
+    """
+    from django_celery_results.models import TaskResult
+    from django.utils import timezone
+
+    if not recipient_email:
+        recipient_email = settings.DEFAULT_FROM_EMAIL
+
+    total_tasks = TaskResult.objects.count()
+    success_tasks = TaskResult.objects.filter(status="SUCCESS").count()
+    failed_tasks = TaskResult.objects.filter(status="FAILURE").count()
+    now_local = timezone.localtime(timezone.now())
+
+    subject = f"Periodic System Report - {now_local.strftime('%Y-%m-%d %H:%M %Z')}"
+    message = (
+        f"Celery Execution Summary Report\n"
+        f"Generated at: {now_local.strftime('%Y-%m-%d %H:%M:%S %Z')}\n\n"
+        f"Total Recorded Tasks: {total_tasks}\n"
+        f"Successful Tasks: {success_tasks}\n"
+        f"Failed Tasks: {failed_tasks}\n"
+    )
+
+    logger.info(f"[Periodic Report] Sending report to {recipient_email}...")
+    return send_email_task.apply(
+        args=[subject, message, [recipient_email]]
+    ).get()
+
+
